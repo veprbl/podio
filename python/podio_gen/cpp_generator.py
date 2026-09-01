@@ -191,6 +191,7 @@ class CPPClassGenerator(ClassGeneratorBaseMixin):
         old_versions = self.old_datatypes.get(name, [])
         datatype["old_versions"] = old_versions
         for old_dt in old_versions:
+            self._mark_upstream_members(old_dt["definition"]["Members"])
             data_includes.update(self._get_member_includes(old_dt["definition"]["Members"]))
 
         datatype["includes_data"] = self._sort_includes(data_includes)
@@ -209,6 +210,27 @@ class CPPClassGenerator(ClassGeneratorBaseMixin):
             self._fill_templates("SIOBlock", datatype)
 
         return datatype
+
+    def _mark_upstream_members(self, members):
+        """Flag members whose type is defined in the upstream EDM.
+
+        Such types are versioned by the upstream EDM independently of this
+        datamodel, so they must not be qualified with this datamodel's schema
+        version when generating the old version PODs.
+
+        Only the members of datatypes need to be marked, because Data.h.jinja2
+        is the only template that qualifies the members of the old versions
+        with a schema version. The old versions of components refer to their
+        members unqualified, so a component that has an upstream component as a
+        member is not affected. Should that ever change, the members of the old
+        component versions have to be marked here as well.
+        """
+        if not self.upstream_edm:
+            return
+        for member in members:
+            type_name = member.array_type if member.is_array else member.full_type
+            if type_name in self.upstream_edm.components:
+                member.is_upstream = True
 
     def _write_arrow_mapper_header(self, datamodel):
         """A generated helper that exposes the datamodel as an Arrow schema"""
