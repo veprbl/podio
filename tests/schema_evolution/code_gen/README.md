@@ -42,12 +42,32 @@ To avoid re-generating the datamodel again for the same check with different
 backends, the `NO_GENERATE_MODELS` flag can be passed to
 `ADD_SCHEMA_EVOLUTION_TEST`.
 
+If the `WITH_UPSTREAM` argument / flag is passed, the test case is additionally
+assumed to contain an `upstream.yaml` which is generated as the package
+`upstream` and used as upstream EDM for all versions of the model. This makes it
+possible to test the interplay of schema evolution with an upstream EDM, which
+is versioned independently of the datamodel that builds on top of it.
+
 ## CMake Functions
+
+### GENERATE_UPSTREAM_MODEL
+
+```cmake
+GENERATE_UPSTREAM_MODEL(test_case)
+```
+
+Generates and builds `<test_case>/upstream.yaml` as the package `upstream` into
+a dedicated subfolder, so that it can be used as upstream EDM by the other
+models of the test case. Usually not called directly but via the
+`WITH_UPSTREAM` flag of `ADD_SCHEMA_EVOLUTION_TEST`.
+
+**Arguments:**
+- `test_case`: The name of the test case
 
 ### GENERATE_DATAMODEL
 
 ```cmake
-GENERATE_DATAMODEL(test_case model_version [WITH_EVOLUTION] [OLD_VERSIONS version1 version2 ...])
+GENERATE_DATAMODEL(test_case model_version [WITH_EVOLUTION] [WITH_UPSTREAM] [OLD_VERSIONS version1 version2 ...])
 ```
 
 Generates the necessary code and builds all required libraries for the specified
@@ -58,6 +78,7 @@ a distinct subfolder to allow individual "toggling" of models at test runtime.
 - `test_case`: The name of the test case
 - `model_version`: Which version of the model to generate (old or new)
 - `WITH_EVOLUTION` (Optional): Pass an evolution.yaml file to the generation of the model
+- `WITH_UPSTREAM` (Optional): Build the model on top of the upstream model of the test case
 - `OLD_VERSIONS` (Optional): List of old model versions to pass to OLD_DESCRIPTION
 
 **Requirements:**
@@ -66,7 +87,7 @@ a distinct subfolder to allow individual "toggling" of models at test runtime.
 ### ADD_SCHEMA_EVOLUTION_TEST
 
 ```cmake
-ADD_SCHEMA_EVOLUTION_TEST(test_case [RNTUPLE] [NO_GENERATE_MODELS] [WITH_EVOLUTION] [OLD_MODELS version1 version2 ...])
+ADD_SCHEMA_EVOLUTION_TEST(test_case [RNTUPLE] [NO_GENERATE_MODELS] [WITH_EVOLUTION] [WITH_UPSTREAM] [OLD_MODELS version1 version2 ...])
 ```
 
 Adds all the bits and pieces necessary to test a certain schema evolution case,
@@ -78,6 +99,7 @@ to write data in old format(s) and read them back in the new format.
 - `RNTUPLE` (Optional): Use RNTuple backend for testing
 - `NO_GENERATE_MODELS` (Optional): Skip generation of datamodels
 - `WITH_EVOLUTION` (Optional): Mark this evolution as one that needs intervention
+- `WITH_UPSTREAM` (Optional): Generate `<test_case>/upstream.yaml` as upstream EDM and build the models on top of it
 - `OLD_MODELS` (Optional): List of old model versions (defaults to "old")
 
 **Behavior:**

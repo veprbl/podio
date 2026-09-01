@@ -1,10 +1,56 @@
-#--- GENERATE_DATAMODEL(test_case model_version [WITH_EVOLUTION] [NO_EVOLUTION_CHECKS] [OLD_VERSIONS version1 version2 ...])
+#--- GENERATE_UPSTREAM_MODEL(test_case)
+#
+# Arguments:
+#   test_case      The name of the test case
+#
+# Generate and build the upstream datamodel of a test case from
+# <test_case>/upstream.yaml as the package "upstream". The resulting library can
+# be used as upstream EDM by the old and new models of the test case via the
+# WITH_UPSTREAM flag of GENERATE_DATAMODEL / ADD_SCHEMA_EVOLUTION_TEST.
+function(GENERATE_UPSTREAM_MODEL test_case)
+  set(model_base ${test_case}_upstreamModel)
+  set(output_base ${CMAKE_CURRENT_BINARY_DIR}/${test_case}/upstream_model)
+
+  set(TEST_IO_HANDLERS ${PODIO_IO_HANDLERS})
+  list(REMOVE_ITEM TEST_IO_HANDLERS "ARROW")
+
+  PODIO_GENERATE_DATAMODEL(upstream ${test_case}/upstream.yaml headers sources
+    IO_BACKEND_HANDLERS ${TEST_IO_HANDLERS}
+    OUTPUT_FOLDER ${output_base}
+  )
+
+  PODIO_ADD_DATAMODEL_CORE_LIB(${model_base} "${headers}" "${sources}"
+    OUTPUT_FOLDER ${output_base}
+  )
+  PODIO_ADD_ROOT_IO_DICT(${model_base}Dict ${model_base} "${headers}" ${output_base}/src/selection.xml
+    OUTPUT_FOLDER ${output_base}
+  )
+
+  set_target_properties(${model_base} PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${output_base})
+  set_target_properties(${model_base}Dict PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${output_base})
+  add_custom_command(TARGET ${model_base}Dict
+    POST_BUILD
+    BYPRODUCTS
+      ${output_base}/lib${model_base}Dict_rdict.pcm
+      ${output_base}/${model_base}DictDict.rootmap
+
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/lib${model_base}Dict_rdict.pcm ${output_base}/lib${model_base}Dict_rdict.pcm
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/${model_base}DictDict.rootmap ${output_base}/${model_base}DictDict.rootmap
+
+    COMMENT "Moving generated rootmaps for ${test_case} (upstream)"
+    VERBATIM
+  )
+  set_target_properties(${model_base}Dict-dictgen PROPERTIES EXCLUDE_FROM_ALL TRUE)
+endfunction()
+
+#--- GENERATE_DATAMODEL(test_case model_version [WITH_EVOLUTION] [NO_EVOLUTION_CHECKS] [WITH_UPSTREAM] [OLD_VERSIONS version1 version2 ...])
 #
 # Arguments:
 #   test_case           The name of the test case
 #   model_version       which version of the model to generate (old or new)
 #   WITH_EVOLUTION      (Optional) pass an evolution.yaml file to the generation of the model
 #   NO_EVOLUTION_CHECKS (Optional) skip passing OLD_DESCRIPTION to PODIO_GENERATE_DATAMODEL
+#   WITH_UPSTREAM       (Optional) build this model on top of the upstream model of the test case
 #   OLD_VERSIONS   (Optional) list of old model versions to pass to OLD_DESCRIPTION
 #
 # Generate the necessary code and build all required libraries for the specified
@@ -12,7 +58,7 @@
 # outputs into a distinct subfolder such that at (test) runtime the models can
 # be individually "toggled"
 function(GENERATE_DATAMODEL test_case model_version)
-  cmake_parse_arguments(PARSED_ARGS "WITH_EVOLUTION;NO_EVOLUTION_CHECKS" "" "OLD_VERSIONS" ${ARGN})
+  cmake_parse_arguments(PARSED_ARGS "WITH_EVOLUTION;NO_EVOLUTION_CHECKS;WITH_UPSTREAM" "" "OLD_VERSIONS" ${ARGN})
   set(model_base ${test_case}_${model_version}Model)
   set(output_base ${CMAKE_CURRENT_BINARY_DIR}/${test_case}/${model_version}_model)
 
@@ -33,31 +79,33 @@ function(GENERATE_DATAMODEL test_case model_version)
   set(TEST_IO_HANDLERS ${PODIO_IO_HANDLERS})
   list(REMOVE_ITEM TEST_IO_HANDLERS "ARROW")
 
+  # Assemble the optional arguments for the code generation
+  set(generate_args)
   if(PARSED_ARGS_WITH_EVOLUTION)
-    PODIO_GENERATE_DATAMODEL(datamodel ${test_case}/${model_version}.yaml headers sources
-      IO_BACKEND_HANDLERS ${TEST_IO_HANDLERS}
-      OUTPUT_FOLDER ${output_base}
+    list(APPEND generate_args
       OLD_DESCRIPTIONS ${old_descriptions}
       SCHEMA_EVOLUTION ${test_case}/evolution.yaml
     )
-  else()
-    if(old_descriptions AND NOT PARSED_ARGS_NO_EVOLUTION_CHECKS)
-      PODIO_GENERATE_DATAMODEL(datamodel ${test_case}/${model_version}.yaml headers sources
-        IO_BACKEND_HANDLERS ${TEST_IO_HANDLERS}
-        OUTPUT_FOLDER ${output_base}
-        OLD_DESCRIPTIONS ${old_descriptions}
-    )
-    else()
-      PODIO_GENERATE_DATAMODEL(datamodel ${test_case}/${model_version}.yaml headers sources
-        IO_BACKEND_HANDLERS ${TEST_IO_HANDLERS}
-        OUTPUT_FOLDER ${output_base}
-      )
-    endif()
+  elseif(old_descriptions AND NOT PARSED_ARGS_NO_EVOLUTION_CHECKS)
+    list(APPEND generate_args OLD_DESCRIPTIONS ${old_descriptions})
   endif()
+  if(PARSED_ARGS_WITH_UPSTREAM)
+    list(APPEND generate_args UPSTREAM_EDM upstream:${test_case}/upstream.yaml)
+  endif()
+
+  PODIO_GENERATE_DATAMODEL(datamodel ${test_case}/${model_version}.yaml headers sources
+    IO_BACKEND_HANDLERS ${TEST_IO_HANDLERS}
+    OUTPUT_FOLDER ${output_base}
+    ${generate_args}
+  )
 
   PODIO_ADD_DATAMODEL_CORE_LIB(${model_base} "${headers}" "${sources}"
     OUTPUT_FOLDER ${output_base}
   )
+  if(PARSED_ARGS_WITH_UPSTREAM)
+    # It is the responsibility of the downstream model to link against the upstream one
+    target_link_libraries(${model_base} PUBLIC ${test_case}_upstreamModel)
+  endif()
   PODIO_ADD_ROOT_IO_DICT(${model_base}Dict ${model_base} "${headers}" ${output_base}/src/selection.xml
     OUTPUT_FOLDER ${output_base}
   )
@@ -110,7 +158,7 @@ endfunction()
 # See the README for more details on which parts need to be implemented for
 # adding a new test case.
 function(ADD_SCHEMA_EVOLUTION_TEST test_case)
-  cmake_parse_arguments(PARSED_ARGS "RNTUPLE;NO_GENERATE_MODELS;WITH_EVOLUTION;NO_EVOLUTION_CHECKS" "" "OLD_MODELS" ${ARGN})
+  cmake_parse_arguments(PARSED_ARGS "RNTUPLE;NO_GENERATE_MODELS;WITH_EVOLUTION;NO_EVOLUTION_CHECKS;WITH_UPSTREAM" "" "OLD_MODELS" ${ARGN})
 
   # Default to a single old version unless we get an argument
   set(old_versions "old")
@@ -118,25 +166,38 @@ function(ADD_SCHEMA_EVOLUTION_TEST test_case)
     set(old_versions ${PARSED_ARGS_OLD_MODELS})
   endif()
 
+  # Models that are built on top of an upstream EDM need it to be available at
+  # generation, at build and at run time
+  set(upstream_args)
+  # Appended verbatim to the library search paths, hence the leading separator
+  set(upstream_lib_path)
+  if(PARSED_ARGS_WITH_UPSTREAM)
+    set(upstream_args WITH_UPSTREAM)
+    set(upstream_lib_path ":${CMAKE_CURRENT_BINARY_DIR}/${test_case}/upstream_model")
+  endif()
+
   # Generate datamodels
   if(NOT PARSED_ARGS_NO_GENERATE_MODELS)
+    if(PARSED_ARGS_WITH_UPSTREAM)
+      GENERATE_UPSTREAM_MODEL(${test_case})
+    endif()
     # Generate old model(s)
     foreach(old_version ${old_versions})
-      GENERATE_DATAMODEL(${test_case} ${old_version})
+      GENERATE_DATAMODEL(${test_case} ${old_version} ${upstream_args})
     endforeach()
 
     # Generate new model with the knowledge of all old versions
     if(PARSED_ARGS_WITH_EVOLUTION)
       if(PARSED_ARGS_NO_EVOLUTION_CHECKS)
-        GENERATE_DATAMODEL(${test_case} new WITH_EVOLUTION NO_EVOLUTION_CHECKS OLD_VERSIONS ${old_versions})
+        GENERATE_DATAMODEL(${test_case} new WITH_EVOLUTION NO_EVOLUTION_CHECKS ${upstream_args} OLD_VERSIONS ${old_versions})
       else()
-        GENERATE_DATAMODEL(${test_case} new WITH_EVOLUTION OLD_VERSIONS ${old_versions})
+        GENERATE_DATAMODEL(${test_case} new WITH_EVOLUTION ${upstream_args} OLD_VERSIONS ${old_versions})
       endif()
     else()
       if(PARSED_ARGS_NO_EVOLUTION_CHECKS)
-        GENERATE_DATAMODEL(${test_case} new NO_EVOLUTION_CHECKS OLD_VERSIONS ${old_versions})
+        GENERATE_DATAMODEL(${test_case} new NO_EVOLUTION_CHECKS ${upstream_args} OLD_VERSIONS ${old_versions})
       else()
-        GENERATE_DATAMODEL(${test_case} new OLD_VERSIONS ${old_versions})
+        GENERATE_DATAMODEL(${test_case} new ${upstream_args} OLD_VERSIONS ${old_versions})
       endif()
     endif()
   endif()
@@ -178,7 +239,7 @@ function(ADD_SCHEMA_EVOLUTION_TEST test_case)
     add_test(NAME schema_evol:code_gen:${test_case}:write_${old_version}${suffix} COMMAND write_${test_base}_${old_version})
     set_property(TEST schema_evol:code_gen:${test_case}:write_${old_version}${suffix}
       PROPERTY ENVIRONMENT
-        ROOT_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}/${test_case}/${old_version}_model
+        ROOT_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}/${test_case}/${old_version}_model${upstream_lib_path}
         LD_LIBRARY_PATH=${PROJECT_BINARY_DIR}/src:$<TARGET_FILE_DIR:ROOT::Tree>:$<$<TARGET_EXISTS:SIO::sio>:$<TARGET_FILE_DIR:SIO::sio>>:$ENV{LD_LIBRARY_PATH}
         $<$<BOOL:${USE_SANITIZER}>:TSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/tests/tsan_suppressions.txt>
         $<$<BOOL:${USE_SANITIZER}>:LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/tests/lsan_suppressions.txt>
@@ -207,7 +268,7 @@ function(ADD_SCHEMA_EVOLUTION_TEST test_case)
         COMMAND bash -c "${test_command}")
   set_property(TEST schema_evol:code_gen:${test_case}:read${suffix}
     PROPERTY ENVIRONMENT
-      ROOT_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}/${test_case}/new_model
+      ROOT_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}/${test_case}/new_model${upstream_lib_path}
       LD_LIBRARY_PATH=${PROJECT_BINARY_DIR}/src:$<TARGET_FILE_DIR:ROOT::Tree>:$<$<TARGET_EXISTS:SIO::sio>:$<TARGET_FILE_DIR:SIO::sio>>:$ENV{LD_LIBRARY_PATH}
       $<$<BOOL:${USE_SANITIZER}>:TSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/tests/tsan_suppressions.txt>
       $<$<BOOL:${USE_SANITIZER}>:LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/tests/lsan_suppressions.txt>
