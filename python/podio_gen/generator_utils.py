@@ -175,6 +175,10 @@ class MemberVariable:
         self.includes = set()
         self.jl_imports = set()
         self.interface_types = []  # populated in the generator script if necessary
+        # Types coming from an upstream EDM are versioned independently by that
+        # EDM, so they must not be qualified with this datamodel's schema
+        # version. Populated in the generator script if necessary.
+        self.is_upstream = False
 
         if kwargs:
             raise ValueError(f"Unused kwargs in MemberVariable: {list(kwargs.keys())}")
@@ -259,7 +263,7 @@ class MemberVariable:
         Only applies in case the member is a component, as builtin variables are
         considered not versionable
         """
-        if self.is_builtin:
+        if self.is_builtin or self.is_upstream:
             return str(self)
 
         if self.is_array:

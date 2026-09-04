@@ -1,0 +1,12 @@
+schema_version: 1
+options:
+  exposePODMembers: false
+  includeSubfolder: true
+
+datatypes:
+  UpstreamComponentType:
+    Description: "A datatype with a member whose type comes from the upstream datamodel"
+    Author: "podio"
+    Members:
+      - upstream::UpstreamVector position // a component from the upstream datamodel
+      - int oldName // a member that is renamed in the new schema version

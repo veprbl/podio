@@ -1,0 +1,5 @@
+migrations:
+  UpstreamComponentType:
+    - from_version: 1
+      to_version: 2
+      rename_member: {from: oldName, to: newName}

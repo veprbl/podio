@@ -1,0 +1,24 @@
+## The upstream datamodel of this test case. It is versioned completely
+## independently of the datamodel that builds on top of it. In particular its
+## schema version differs from the ones of the old and the new model, so that a
+## component of this model that is (wrongly) put into a version namespace of the
+## downstream datamodel does not accidentally resolve to an existing namespace.
+schema_version: 6
+options:
+  exposePODMembers: false
+  includeSubfolder: true
+
+components:
+  upstream::UpstreamVector:
+    Description: "A component that is defined in the upstream datamodel"
+    Members:
+      - float x
+      - float y
+      - float z
+
+datatypes:
+  upstream::UpstreamHit:
+    Description: "A datatype that is defined in the upstream datamodel"
+    Author: "podio"
+    Members:
+      - float energy // an energy

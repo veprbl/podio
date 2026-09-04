@@ -163,3 +163,29 @@ class MemberVariableTest(unittest.TestCase):
             with self.subTest(declaration=declaration, version=version):
                 member = parser.parse(declaration, False)
                 self.assertEqual(member.qualified_as_version(version), expected_qualified_str)
+
+    def test_qualified_as_version_upstream(self):
+        """Types from an upstream EDM must not be qualified with this datamodel's
+        schema version, since the upstream EDM is versioned independently.
+        """
+        # (declaration, version, expected)
+        test_cases = [
+            ("edm4hep::Vector3f position", 81000, "::edm4hep::Vector3f position{};"),
+            ("edm4hep::Vector2f loc // 2D location", 3, "::edm4hep::Vector2f loc{}; ///< 2D location"),
+            (
+                "std::array<edm4hep::Vector3f, 2> corners",
+                7,
+                "std::array<edm4hep::Vector3f, 2> corners{};",
+            ),
+        ]
+
+        parser = MemberParser()
+        for declaration, version, expected in test_cases:
+            with self.subTest(declaration=declaration, version=version):
+                member = parser.parse(declaration, False)
+                member.is_upstream = True
+                self.assertEqual(member.qualified_as_version(version), expected)
+
+                # Without the flag the type belongs to this datamodel and is versioned
+                member.is_upstream = False
+                self.assertNotEqual(member.qualified_as_version(version), expected)
